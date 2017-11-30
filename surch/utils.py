@@ -20,6 +20,7 @@ import logging
 from datetime import datetime
 from distutils.spawn import find_executable
 
+import git
 import yaml
 
 from . import constants
@@ -36,7 +37,7 @@ def _create_surch_env():
 def _get_repo_and_organization_name(repo_url):
     organization_name = repo_url.rsplit('.com/', 1)[-1].rsplit('/', 1)[0]
     repo_name = repo_url.rsplit('/', 1)[-1].rsplit('.', 1)[0]
-    return repo_name.encode('ascii'), organization_name.encode('ascii')
+    return repo_name, organization_name
 
 
 def setup_logger(verbose=False):
