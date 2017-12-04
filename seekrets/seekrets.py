@@ -19,7 +19,7 @@ import click
 
 from . import repo
 from . import constants
-from .exceptions import SurchError
+from .exceptions import SeekretsError
 
 
 CLICK_CONTEXT_SETTINGS = dict(
@@ -34,7 +34,7 @@ search_string = click.option(
     help='String you would like to search for. '
          'This can be passed multiple times')
 search_common = click.option(
-    '--surch-common',
+    '--search-common',
     default=True,
     help='Whether to search for common patterns as well. Defaults to True')
 verbose = click.option('-v', '--verbose', default=False, is_flag=True)
@@ -50,17 +50,17 @@ def main():
 @search_string
 @search_common
 @verbose
-def surch_repo(repo_url, string, surch_common, verbose):
+def seekrets_repo(repo_url, string, search_common, verbose):
     """Search a single repository.
-    You can add user_name and password. Used surch like that:
+    You can add user_name and password. Used seekrets like that:
 
-    "surch repo 'https://<user>:<pass>@github.com/cloudify-cosmo/surch.git'"
+    "seekrets repo 'https://<user>:<pass>@github.com/cloudify-cosmo/seekrets.git'"
     """
     try:
-        repo.surch(
+        repo.seekrets(
             repo_url=repo_url,
             search_list=string,
-            search_common=surch_common,
+            search_common=search_common,
             verbose=verbose)
-    except SurchError as ex:
+    except SeekretsError as ex:
         sys.exit(ex)

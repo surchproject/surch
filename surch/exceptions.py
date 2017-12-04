@@ -1,2 +1,0 @@
-class SurchError(Exception):
-    pass

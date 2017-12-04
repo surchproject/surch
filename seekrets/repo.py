@@ -21,8 +21,7 @@ import giturlparse
 
 
 COMMON_EXPRESSIONS = {
-    'AWS Access Key ID': re.compile('?<![A-Z0-9])[A-Z0-9]{20}(?![A-Z0-9]'),
-    'AWS Secret Access Key': re.compile('?<![A-Za-z0-9/+=])[A-Za-z0-9/+=]{40}(?![A-Za-z0-9/+=]')
+    'AWS Access Key ID': re.compile('AKIA[0-9A-Z]{16}'),
 }
 
 logger = utils.setup_logger()
@@ -33,8 +32,8 @@ def _clone(repo_url, repo_path):
     git.Repo.clone_from(repo_url, repo_path)
 
 
-def _pull(repo):
-    logger.info('Pulling...')
+def _pull(repo, branch):
+    logger.info('Pulling %s...', branch.name)
     # repo.remotes.origin.pull()
     sh.git.pull()
 
@@ -65,30 +64,30 @@ def _get_repo_path(repo_url, meta):
     return repo_path
 
 
-def _surch_for_common_expressions(meta, commit, diff, record):
+def _search(meta, commit, diff, record, search_type='common'):
     for index, blob in enumerate(diff):
-        # print(json.dumps(result_template, indent=4))
-        # print(commit.tree.blobs[index].path)
         data = blob.diff.decode('utf-8', errors='replace')
-        blob_parts = [meta.href.replace(
-            '.git', ''), 'blob', commit.hexsha]
+        blob_parts = [meta.href.replace('.git', ''), 'blob', commit.hexsha]
+        # TODO: APPEND PATH TO BLOB URL!
         # commit.tree.blobs[index].path
         blob_url = '/'.join(blob_parts)
 
-        for key_type, expression in COMMON_EXPRESSIONS.items():
-            result = expression.findall(data)
+        if search_type == 'common':
+            for key_type, expression in COMMON_EXPRESSIONS.items():
+                result = expression.findall(data)
+                if result:
+                    record['risks'].append(
+                        {'blob_url': blob_url, 'strings': result, 'type': key_type})
+        else:
+            result = [s for s in strings if s in data]
             if result:
                 record['risks'].append(
-                    {'blob_url': blob_url, 'strings': result, 'type': key_type})
+                    {'blob_url': blob_url, 'strings': result, 'type': 'custom'})
 
     return record
 
 
-def _surch_for_list_of_strings(data, strings):
-    return [s for s in strings if s in data]
-
-
-def surch(repo_url, search_list=None, search_common=True, verbose=False):
+def seekrets(repo_url, search_list=None, search_common=True, verbose=False):
     """Search for a list of strings or secret oriented regex in a repo
 
     Example output:
@@ -123,15 +122,17 @@ def surch(repo_url, search_list=None, search_common=True, verbose=False):
         cloned_now = True
     repo = git.Repo(clone)
     reduction_list = []
-    # Move to _surch_branches()
+    # Move to _seek_branches()
     for branch in _get_branches(repo):
-        # if not cloned_now:
-        #     _pull(repo)
+        if not branch.name == 'origin/master':
+            continue
+        if not cloned_now:
+            _pull(repo, branch)
         branch_name = _get_branch_name(branch)
         _checkout(repo, branch, branch_name)
         commits = _get_commits(repo)
         commits = _reduce_checked(commits, reduction_list)
-        # TODO: Move to _surch_commits()
+        # TODO: Move to _seek_commits()
         previous_commit = None
         for commit in commits:
             reduction_list.append(commit)
@@ -151,9 +152,10 @@ def surch(repo_url, search_list=None, search_common=True, verbose=False):
                     'risks': [],
                 }
                 if search_common:
-                    populated_record = _surch_for_common_expressions(
+                    populated_record = _search(
                         meta, commit, diff, record)
                     if populated_record.get('risks'):
                         results.append(populated_record)
             previous_commit = commit
-        print(json.dumps(results, indent=4))
+    print(json.dumps(results, indent=4))
+    return results
