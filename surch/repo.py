@@ -2,6 +2,13 @@ import re
 import os
 import sh
 import sys
+import json
+import datetime
+try:
+    from urllib.parse import urljoin
+except:
+    from urlparse import urljoin
+
 
 from . import utils
 from . import constants
@@ -9,10 +16,13 @@ from . import constants
 import git
 import giturlparse
 
+# TEST AKIATM9O2ZJBIALM2DCA
+# TEST AWsJU1lDU5u83Csw9fZux4UG2JAyg9Odxm/bsHHF
+
 
 COMMON_EXPRESSIONS = {
-    # 'AWS_API': re.compile('AKIA[0-9A-Z]{16}')
-    'AWS_API': re.compile('import')
+    'AWS Access Key ID': re.compile('?<![A-Z0-9])[A-Z0-9]{20}(?![A-Z0-9]'),
+    'AWS Secret Access Key': re.compile('?<![A-Za-z0-9/+=])[A-Za-z0-9/+=]{40}(?![A-Za-z0-9/+=]')
 }
 
 logger = utils.setup_logger()
@@ -55,19 +65,27 @@ def _get_repo_path(repo_url, meta):
     return repo_path
 
 
-def _surch_common(data):
-    results = []
+def _surch_for_common_expressions(meta, commit, diff, record):
+    for index, blob in enumerate(diff):
+        # print(json.dumps(result_template, indent=4))
+        # print(commit.tree.blobs[index].path)
+        data = blob.diff.decode('utf-8', errors='replace')
+        blob_parts = [meta.href.replace(
+            '.git', ''), 'blob', commit.hexsha]
+        # commit.tree.blobs[index].path
+        blob_url = '/'.join(blob_parts)
 
-    for key_type, expression in COMMON_EXPRESSIONS.items():
-        result = expression.findall(data)
-        if result:
-            results.append(result)
-            print(result)
-            sys.exit()
+        for key_type, expression in COMMON_EXPRESSIONS.items():
+            result = expression.findall(data)
+            if result:
+                record['risks'].append(
+                    {'blob_url': blob_url, 'strings': result, 'type': key_type})
+
+    return record
 
 
-def _surch_list(data):
-    pass
+def _surch_for_list_of_strings(data, strings):
+    return [s for s in strings if s in data]
 
 
 def surch(repo_url, search_list=None, search_common=True, verbose=False):
@@ -77,23 +95,28 @@ def surch(repo_url, search_list=None, search_common=True, verbose=False):
 
     {
         [
-            "blob_url": "https://github.com/nir0s/ghost/blob/.../ghost",
-            "commit_sha": "b788a889e484d57451944f93e2b65ed425d6bf65",
-            "commit_date": "Wed Aug 24 11:11:56 2016",
-            "email": "nir36g@gmail.com",
-            "branch": "slack",
-            "repo": "ghost",
-            "username": "nir0s",
-            "result": [
-                { "path": "blah.py", "line": "30", "string": "AKI..." },
-                ...
-            ]
+            {
+
+                "commit_sha": "b788a889e484d57451944f93e2b65ed425d6bf65",
+                "commit_date": "Wed Aug 24 11:11:56 2016",
+                "committer_email": "nir36g@gmail.com",
+                "committer_username": "nir0s",
+                "branch": "slack",
+                "repo": "ghost",
+                "owner": "nir0s",
+                "risks": [
+                    { "blob_url": "https://github.com/nir0s/ghost/blob/.../ghost.py", "string": "AKI..." },
+                    ...
+                ]
+            },
         ],
         ...
     }
     """
-    repo_meta = giturlparse.parse(repo_url)
-    clone = _get_repo_path(repo_url, repo_meta)
+    results = []
+
+    meta = giturlparse.parse(repo_url)
+    clone = _get_repo_path(repo_url, meta)
     cloned_now = False
     if not os.path.isdir(clone):
         _clone(repo_url, clone)
@@ -102,8 +125,8 @@ def surch(repo_url, search_list=None, search_common=True, verbose=False):
     reduction_list = []
     # Move to _surch_branches()
     for branch in _get_branches(repo):
-        if not cloned_now:
-            _pull(repo)
+        # if not cloned_now:
+        #     _pull(repo)
         branch_name = _get_branch_name(branch)
         _checkout(repo, branch, branch_name)
         commits = _get_commits(repo)
@@ -116,12 +139,21 @@ def surch(repo_url, search_list=None, search_common=True, verbose=False):
                 pass
             else:
                 diff = previous_commit.diff(commit, create_patch=True)
-                for blob in diff:
-                    dir(blob)
-                    sys.exit(1)
-                    data = blob.diff.decode('utf-8', errors='replace')
-                    if search_common:
-                        _surch_common(data)
-                    if search_list:
-                        _surch_list(data)
+                record = {
+                    'commit_sha': commit.hexsha,
+                    'commit_date': commit.committed_datetime.strftime('%Y-%m-%dT%H:%M:%S'),
+                    'committer_email': commit.committer.email,
+                    'committer_username': commit.committer.name,
+                    'commit_msg': commit.message,
+                    'branch': branch.name,
+                    'repo': meta.name,
+                    'org': meta.owner,
+                    'risks': [],
+                }
+                if search_common:
+                    populated_record = _surch_for_common_expressions(
+                        meta, commit, diff, record)
+                    if populated_record.get('risks'):
+                        results.append(populated_record)
             previous_commit = commit
+        print(json.dumps(results, indent=4))
